@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+*.egg-info/
+
+# Backend storage (uploads e outputs gerados em runtime)
+backend/storage/uploads/
+backend/storage/outputs/
+
+# Variáveis de ambiente
+backend/.env
+.env
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
