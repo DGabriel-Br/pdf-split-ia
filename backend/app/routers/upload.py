@@ -1,9 +1,9 @@
 import os
 import uuid
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from app.config import Settings, get_settings
 from app.services.job_store import job_store
-from app.pipeline import run_pipeline
+from app.tasks import run_pipeline_task
 
 router = APIRouter()
 
@@ -11,7 +11,6 @@ router = APIRouter()
 @router.post("/upload")
 async def upload_pdf(
     file: UploadFile,
-    background_tasks: BackgroundTasks,
     settings: Settings = Depends(get_settings),
 ) -> dict:
     if file.content_type not in ("application/pdf", "application/octet-stream"):
@@ -34,6 +33,6 @@ async def upload_pdf(
         f.write(content)
 
     job_store.create(job_id)
-    background_tasks.add_task(run_pipeline, job_id, file_path, settings)
+    run_pipeline_task.delay(job_id, file_path)
 
     return {"job_id": job_id}

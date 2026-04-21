@@ -1,20 +1,21 @@
-import threading
+import json
 import time
-from collections import OrderedDict
+import redis
 from app.models import JobState, JobStatus, PageResult
+
+_redis = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
+_JOB_TTL = 3600  # seconds
+
+
+def _key(job_id: str) -> str:
+    return f"job:{job_id}"
+
+
+def _text_key(job_id: str) -> str:
+    return f"job:{job_id}:texts"
 
 
 class JobStore:
-    """Thread-safe in-memory store for job state.
-
-    BackgroundTasks runs in a threadpool while the event loop serves poll requests
-    concurrently — the lock prevents torn reads/writes.
-    """
-
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._jobs: OrderedDict[str, JobState] = OrderedDict()
-
     def create(self, job_id: str) -> JobState:
         state = JobState(
             job_id=job_id,
@@ -22,39 +23,42 @@ class JobStore:
             message="Na fila...",
             created_at=time.time(),
         )
-        with self._lock:
-            self._jobs[job_id] = state
+        _redis.setex(_key(job_id), _JOB_TTL, state.model_dump_json())
         return state
 
     def get(self, job_id: str) -> JobState | None:
-        with self._lock:
-            return self._jobs.get(job_id)
+        raw = _redis.get(_key(job_id))
+        if raw is None:
+            return None
+        return JobState.model_validate_json(raw)
 
     def update(self, job_id: str, **kwargs) -> None:
-        with self._lock:
-            state = self._jobs.get(job_id)
-            if state is None:
-                return
-            updated = state.model_copy(update=kwargs)
-            self._jobs[job_id] = updated
+        raw = _redis.get(_key(job_id))
+        if raw is None:
+            return
+        state = JobState.model_validate_json(raw)
+        updated = state.model_copy(update=kwargs)
+        _redis.setex(_key(job_id), _JOB_TTL, updated.model_dump_json())
 
     def append_page(self, job_id: str, page: PageResult) -> None:
-        with self._lock:
-            state = self._jobs.get(job_id)
-            if state is None:
-                return
-            new_pages = list(state.pages) + [page]
-            self._jobs[job_id] = state.model_copy(update={"pages": new_pages})
+        raw = _redis.get(_key(job_id))
+        if raw is None:
+            return
+        state = JobState.model_validate_json(raw)
+        new_pages = list(state.pages) + [page]
+        updated = state.model_copy(update={"pages": new_pages})
+        _redis.setex(_key(job_id), _JOB_TTL, updated.model_dump_json())
+
+    def store_page_text(self, job_id: str, page_number: int, text: str) -> None:
+        _redis.hset(_text_key(job_id), str(page_number), text[:400])
+        _redis.expire(_text_key(job_id), _JOB_TTL)
+
+    def get_page_text(self, job_id: str, page_number: int) -> str:
+        return _redis.hget(_text_key(job_id), str(page_number)) or ""
 
     def purge_expired(self, ttl_seconds: int) -> int:
-        cutoff = time.time() - ttl_seconds
-        removed = 0
-        with self._lock:
-            expired = [jid for jid, s in self._jobs.items() if s.created_at < cutoff]
-            for jid in expired:
-                del self._jobs[jid]
-                removed += 1
-        return removed
+        # Redis TTL handles expiration automatically
+        return 0
 
 
 job_store = JobStore()
