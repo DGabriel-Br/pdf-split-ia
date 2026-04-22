@@ -7,8 +7,10 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.config import get_settings
 from app.routers import upload, jobs
 
@@ -32,6 +34,12 @@ def create_app() -> FastAPI:
     )
     app.include_router(upload.router, tags=["upload"])
     app.include_router(jobs.router, tags=["jobs"])
+
+    frontend_dist = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")
+    frontend_dist = os.path.normpath(frontend_dist)
+    if os.path.isdir(frontend_dist):
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+
     return app
 
 

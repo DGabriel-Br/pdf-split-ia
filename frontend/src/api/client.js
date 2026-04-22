@@ -1,7 +1,7 @@
 import axios from "axios";
 
 const http = axios.create({
-  baseURL: import.meta.env.VITE_API_URL ?? "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_URL ?? "",
 });
 
 export const api = {
@@ -16,10 +16,10 @@ export const api = {
   },
 
   getDownloadUrl(jobId, docType) {
-    return `${http.defaults.baseURL}/jobs/${jobId}/download/${docType}`;
+    return `/jobs/${jobId}/download/${docType}`;
   },
 
   getDownloadAllUrl(jobId) {
-    return `${http.defaults.baseURL}/jobs/${jobId}/download-all`;
+    return `/jobs/${jobId}/download-all`;
   },
 };
