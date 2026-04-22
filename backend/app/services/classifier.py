@@ -7,6 +7,8 @@ from app.models import DocumentType
 _TITLE_PACKING = [
     "packing list",     # "Packing List", "PACKING LIST"
     "p a c k i n g",   # "P A C K I N G L I S T" (Indian spaced-letter format)
+    "delivery note",    # Robert Bosch and similar suppliers
+    "lieferschein",     # German: delivery note (Robert Bosch German docs)
 ]
 _TITLE_INVOICE = [
     "export invoice",   # "EXPORT INVOICE" (Reify, Indian format)
@@ -19,7 +21,12 @@ _TITLE_OTHER = [
     "bill of lading",
     "shipping bill",
     "phytosanitary",
-    "contract",         # Standalone trade contract (e.g. Chinese supplier CONTRACT page)
+    "contract",                  # Standalone trade contract (Chinese supplier)
+    "transport order",           # Robert Bosch transport/shipping orders
+    "ausfuhrbegleitdokument",    # German: export accompanying document (EU customs)
+    "betriebskontinuit",         # German: business continuity export doc
+    "europäische union",         # EU customs documents header
+    "europaische union",         # ASCII variant (without umlaut)
 ]
 
 # ── Keyword signals for score-based pre-filter (fallback after title check) ──
@@ -106,10 +113,10 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     stripped = text.strip()
     first_line = stripped.split("\n")[0].strip().lower()
     lower = stripped.lower()
-    header = lower[:250]
+    header = lower[:500]
 
-    # 1. Exact first-line title match (Chinese supplier: "Invoice" / "Packing List" alone)
-    if first_line == "invoice":
+    # 1. First-line title match — "Invoice" alone or "Invoice N/M" / "Invoice 1 of 3" format
+    if first_line == "invoice" or first_line.startswith("invoice "):
         return DocumentType.INVOICE, 0.93, True
     if first_line in ("packing list", "packing  list"):
         return DocumentType.PACKING_LIST, 0.93, True
