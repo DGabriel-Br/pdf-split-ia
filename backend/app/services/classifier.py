@@ -2,18 +2,54 @@ import httpx
 from app.config import Settings
 from app.models import DocumentType
 
-# Keyword signals for pre-filter — only highly specific multi-word terms
-# to avoid false positives from generic words like "total", "amount", "rate"
-_INVOICE_SIGNALS = [
-    "payment terms", "amount due", "unit price", "subtotal",
-    "payable to", "remittance", "bank transfer", "wire transfer",
+# ── Title-based signals (checked against first line of extracted text) ──────
+# Most reliable: the document title is almost always on the first line.
+_TITLE_PACKING = [
+    "packing list",     # "Packing List", "PACKING LIST"
+    "p a c k i n g",   # "P A C K I N G L I S T" (Indian spaced-letter format)
 ]
-_PACKING_SIGNALS = [
-    "packing list", "gross weight", "net weight", "cbm",
-    "marks & numbers", "marks and numbers", "n.w.", "g.w.",
+_TITLE_INVOICE = [
+    "export invoice",   # "EXPORT INVOICE" (Reify, Indian format)
+    "e x p o r t i",   # "E X P O R T I N V O I C E" (Prem, Indian spaced-letter format)
+]
+_TITLE_OTHER = [
+    "export value declaration",
+    "annexure",
+    "certificate of origin",
+    "bill of lading",
+    "shipping bill",
+    "phytosanitary",
+    "contract",         # Standalone trade contract (e.g. Chinese supplier CONTRACT page)
 ]
 
-# Minimum score AND dominance ratio required to skip Ollama
+# ── Keyword signals for score-based pre-filter (fallback after title check) ──
+_INVOICE_SIGNALS = [
+    "payment terms",    # Very common in invoice headers
+    "amount due",
+    "unit price",
+    "subtotal",
+    "payable to",
+    "remittance",
+    "bank transfer",
+    "wire transfer",
+    "swift code",       # Bank payment details (Chinese supplier invoices)
+    "beneficiary:",     # Bank payment details (Chinese supplier invoices)
+    "currency:",        # Explicit currency field (Chinese supplier)
+]
+_PACKING_SIGNALS = [
+    "packing list",
+    "gross weight",
+    "net weight",
+    "cbm",
+    "marks & numbers",
+    "marks and numbers",
+    "n.w.",
+    "g.w.",
+    "packing id",       # Indian supplier specific (Prem Industries, Reify)
+    "cartons",
+    "no. of cartons",
+]
+
 _PREFILTER_MIN_SCORE = 3
 _PREFILTER_DOMINANCE = 2
 
@@ -29,7 +65,8 @@ Word 1 — Document type:
                   dimensions, marks & numbers. May include quantities and reference prices, but the
                   document is used by customs/logistics, NOT for payment.
   OTHER         - everything else: bills of lading, export declarations, shipping bills, certificates
-                  of origin, phytosanitary certificates, customs forms, cover pages, bank documents, etc.
+                  of origin, phytosanitary certificates, customs forms, cover pages, bank documents,
+                  trade contracts, annexures, etc.
 
 Word 2 — Page position:
   NEW   - first page of a new document. Has a document header with issuer, recipient, document number
@@ -37,14 +74,18 @@ Word 2 — Page position:
   CONT  - continuation of the previous document. Contains only line items or data, no full header.
 
 Rules:
-1. Ask: is the PRIMARY PURPOSE of this page to request payment (→ INVOICE) or to describe
-   what is physically inside the shipment (→ PACKING_LIST)?
-2. A packing list that also shows reference unit prices is still PACKING_LIST.
-3. IMPORTANT: a form or declaration that has blank fields labelled "Invoice No." or "Shipping Bill No."
+1. The DOCUMENT TITLE (first prominent line) is the most reliable signal:
+   - "EXPORT INVOICE", "Invoice", "E X P O R T  I N V O I C E" → INVOICE
+   - "PACKING LIST", "Packing List", "P A C K I N G  L I S T" → PACKING_LIST
+   - "CONTRACT", "ANNEXURE", "EXPORT VALUE DECLARATION" → OTHER
+2. Two documents from the SAME supplier with IDENTICAL headers (exporter, buyer, invoice ref)
+   can be different types — use the document TITLE to distinguish them.
+3. A packing list that also shows reference unit prices is still PACKING_LIST.
+4. IMPORTANT: a form or declaration with blank fields labelled "Invoice No." or "Shipping Bill No."
    is NOT an invoice — it is a customs/export form → OTHER.
-4. If uncertain about type → OTHER.
-5. If uncertain about position → NEW.
-6. Reply with ONLY two words. No punctuation. No explanation.
+5. A standalone "CONTRACT" between seller and buyer → OTHER (not INVOICE).
+6. If uncertain about type → OTHER. If uncertain about position → NEW.
+7. Reply with ONLY two words. No punctuation. No explanation.
 
 --- PAGE TEXT BEGIN ---
 {text}
@@ -61,12 +102,37 @@ def _keyword_scores(text: str) -> tuple[int, int]:
 
 
 def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
-    """Return (doc_type, confidence, is_doc_start=True) if signal is unambiguous, else None."""
+    """Title-first pre-filter, then keyword scoring. Returns (type, confidence, is_doc_start) or None."""
+    stripped = text.strip()
+    first_line = stripped.split("\n")[0].strip().lower()
+    lower = stripped.lower()
+    header = lower[:250]
+
+    # 1. Exact first-line title match (Chinese supplier: "Invoice" / "Packing List" alone)
+    if first_line == "invoice":
+        return DocumentType.INVOICE, 0.93, True
+    if first_line in ("packing list", "packing  list"):
+        return DocumentType.PACKING_LIST, 0.93, True
+
+    # 2. Title keywords anywhere in first 250 chars
+    other_title = any(t in header for t in _TITLE_OTHER)
+    packing_title = any(t in header for t in _TITLE_PACKING)
+    invoice_title = any(t in header for t in _TITLE_INVOICE)
+
+    if other_title and not invoice_title and not packing_title:
+        return DocumentType.OTHER, 0.92, True
+    if packing_title and not invoice_title:
+        return DocumentType.PACKING_LIST, 0.92, True
+    if invoice_title and not packing_title:
+        return DocumentType.INVOICE, 0.92, True
+
+    # 3. Keyword score fallback
     inv, pack = _keyword_scores(text)
     if inv >= _PREFILTER_MIN_SCORE and inv >= pack * _PREFILTER_DOMINANCE:
         return DocumentType.INVOICE, 0.85, True
     if pack >= _PREFILTER_MIN_SCORE and pack >= inv * _PREFILTER_DOMINANCE:
         return DocumentType.PACKING_LIST, 0.85, True
+
     return None
 
 
@@ -120,7 +186,7 @@ def classify_page_sync(text: str, page_number: int, settings: Settings) -> tuple
     """Synchronous — called from threadpool pipeline.
 
     Returns (DocumentType, confidence, raw_label, is_doc_start).
-    Pre-filter skips Ollama for pages with unambiguous keyword signal.
+    Pre-filter skips Ollama for pages with unambiguous title or keyword signal.
     Falls back to keyword scan if Ollama is unavailable or returns unexpected output.
     """
     prefilter = _prefilter(text)
