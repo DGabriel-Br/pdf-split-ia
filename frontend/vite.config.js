@@ -6,5 +6,11 @@ export default defineConfig({
   server: {
     port: 5173,
     host: "0.0.0.0",
+    allowedHosts: true,
+    proxy: {
+      "/upload": "http://localhost:8000",
+      "/jobs": "http://localhost:8000",
+      "/corrections": "http://localhost:8000",
+    },
   },
 });

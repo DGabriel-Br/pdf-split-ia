@@ -76,16 +76,35 @@ npm run dev
 
 Acesse `http://localhost:5173`.
 
-### 3. Produção (frontend servido pelo FastAPI)
+### 3. Expor via ngrok
+
+Para compartilhar a ferramenta externamente sem deploy, use o modo de desenvolvimento com proxy integrado do Vite:
+
+```bash
+# Terminal 1 — Backend (já deve estar rodando)
+cd backend
+uvicorn app.main:app --port 8000
+
+# Terminal 2 — Frontend com proxy
+cd frontend
+npm run dev
+
+# Terminal 3 — ngrok apontando para o frontend
+ngrok http 5173
+```
+
+O `vite.config.js` já possui `allowedHosts: true` e proxy configurado para `/upload`, `/jobs` e `/corrections`, então o ngrok encaminha tudo corretamente com um único túnel na porta 5173.
+
+> **Nota:** o ngrok free exibe uma tela de aviso na primeira visita. Basta clicar em "Visit Site" para continuar.
+
+### 4. Build de produção (frontend servido pelo FastAPI)
 
 ```bash
 cd frontend
 npm run build
 ```
 
-O FastAPI serve o `dist/` automaticamente em `http://localhost:8000`.
-
-Para expor externamente com ngrok:
+O FastAPI serve o `dist/` automaticamente em `http://localhost:8000`. Nesse caso, expor a porta 8000 via ngrok é suficiente:
 
 ```bash
 ngrok http 8000
