@@ -1,6 +1,6 @@
 from collections import Counter, defaultdict
-from fastapi import APIRouter
-from app.services.correction_store import load_all
+from fastapi import APIRouter, BackgroundTasks, HTTPException
+from app.services.correction_store import load_all, load_unreviewed
 
 router = APIRouter()
 
@@ -24,6 +24,18 @@ def _keyword_candidates(texts: list[str], n: int = 12) -> list[str]:
             if len(w) > 4 and w not in _STOPWORDS and w.replace(".", "").isalpha():
                 words.append(w)
     return [w for w, _ in Counter(words).most_common(n)]
+
+
+@router.post("/corrections/trigger-review", status_code=202)
+async def trigger_review(background_tasks: BackgroundTasks) -> dict:
+    """Dispara a revisão do classificador manualmente em background."""
+    pending = load_unreviewed()
+    if not pending:
+        raise HTTPException(status_code=404, detail="Nenhuma correção pendente para revisar.")
+
+    from app.services.classifier_reviewer import analyze_and_propose
+    background_tasks.add_task(analyze_and_propose)
+    return {"message": f"{len(pending)} correção(ões) enviada(s) para revisão.", "status": "processing"}
 
 
 @router.get("/corrections/report")
