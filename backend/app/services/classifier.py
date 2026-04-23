@@ -1,6 +1,9 @@
+import json
 import logging
+import os
+import time
 import httpx
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.models import DocumentType
 
 log = logging.getLogger(__name__)
@@ -62,6 +65,28 @@ _PACKING_SIGNALS = [
 _PREFILTER_MIN_SCORE = 3
 _PREFILTER_DOMINANCE = 2
 
+# ── Learned patterns (auto-updated by weekly review task) ────────────────────
+_learned_cache: dict = {}
+_learned_loaded_at: float = 0.0
+_LEARNED_TTL = 3600  # reload from file at most once per hour
+
+
+def _get_learned() -> dict:
+    global _learned_cache, _learned_loaded_at
+    now = time.monotonic()
+    if now - _learned_loaded_at > _LEARNED_TTL:
+        try:
+            path = get_settings().learned_patterns_file
+            if os.path.isfile(path):
+                with open(path, encoding="utf-8") as f:
+                    _learned_cache = json.load(f)
+            else:
+                _learned_cache = {}
+        except Exception:
+            _learned_cache = {}
+        _learned_loaded_at = now
+    return _learned_cache
+
 # Confidence levels — named constants so they can be tuned in one place
 _CONF_EXACT_TITLE   = 0.93
 _CONF_HEADER_TITLE  = 0.92
@@ -122,6 +147,13 @@ def _keyword_scores(text: str) -> tuple[int, int]:
 
 def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     """Title-first pre-filter, then keyword scoring. Returns (type, confidence, is_doc_start) or None."""
+    learned = _get_learned()
+    title_other   = _TITLE_OTHER   + learned.get("_TITLE_OTHER", [])
+    title_packing = _TITLE_PACKING + learned.get("_TITLE_PACKING", [])
+    title_invoice = _TITLE_INVOICE + learned.get("_TITLE_INVOICE", [])
+    inv_signals   = _INVOICE_SIGNALS + learned.get("_INVOICE_SIGNALS", [])
+    pack_signals  = _PACKING_SIGNALS + learned.get("_PACKING_SIGNALS", [])
+
     stripped = text.strip()
     first_line = stripped.split("\n")[0].strip().lower()
     lower = stripped.lower()
@@ -134,9 +166,9 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
         return DocumentType.PACKING_LIST, _CONF_EXACT_TITLE, True
 
     # 2. Title keywords anywhere in first 500 chars
-    other_title = any(t in header for t in _TITLE_OTHER)
-    packing_title = any(t in header for t in _TITLE_PACKING)
-    invoice_title = any(t in header for t in _TITLE_INVOICE)
+    other_title   = any(t in header for t in title_other)
+    packing_title = any(t in header for t in title_packing)
+    invoice_title = any(t in header for t in title_invoice)
 
     if other_title and not invoice_title and not packing_title:
         return DocumentType.OTHER, _CONF_HEADER_TITLE, True
@@ -145,8 +177,10 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     if invoice_title and not packing_title:
         return DocumentType.INVOICE, _CONF_HEADER_TITLE, True
 
-    # 3. Keyword score fallback
-    inv, pack = _keyword_scores(text)
+    # 3. Keyword score fallback (merged with learned signals)
+    lower_full = text.lower()
+    inv  = sum(1 for w in inv_signals  if w in lower_full)
+    pack = sum(1 for w in pack_signals if w in lower_full)
     if inv >= _PREFILTER_MIN_SCORE and inv >= pack * _PREFILTER_DOMINANCE:
         return DocumentType.INVOICE, _CONF_KEYWORD_SCORE, True
     if pack >= _PREFILTER_MIN_SCORE and pack >= inv * _PREFILTER_DOMINANCE:

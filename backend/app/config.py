@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     job_ttl_seconds: int = 3600
     corrections_file: str = "storage/corrections.jsonl"
     corrections_dir: str = "storage/corrections"
+    learned_patterns_file: str = "storage/learned_patterns.json"
+    anthropic_api_key: str = ""
     cors_origins: list[str] = ["http://localhost:5173"]
 
     model_config = SettingsConfigDict(env_file=".env")

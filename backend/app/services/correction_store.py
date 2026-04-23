@@ -52,6 +52,26 @@ def save_corrections(
     log.info("Salvas %d correcao(oes) job=%s", len(corrections), job_id)
 
 
+def _last_review_path() -> str:
+    return get_settings().corrections_file.replace(".jsonl", "_last_review.txt")
+
+
+def load_unreviewed() -> list[dict]:
+    """Return corrections that haven't been processed in a previous weekly review."""
+    all_records = load_all()
+    path = _last_review_path()
+    if not os.path.isfile(path):
+        return all_records
+    with open(path) as f:
+        last_ts = f.read().strip()
+    return [r for r in all_records if r["timestamp"] > last_ts]
+
+
+def save_last_review_time(ts: str) -> None:
+    with open(_last_review_path(), "w") as f:
+        f.write(ts)
+
+
 def load_all() -> list[dict]:
     path = get_settings().corrections_file
     if not os.path.isfile(path):

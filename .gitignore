@@ -10,7 +10,10 @@ __pycache__/
 backend/storage/uploads/
 backend/storage/outputs/
 backend/storage/corrections.jsonl
+backend/storage/corrections_last_review.txt
 backend/storage/corrections/
+backend/storage/classifier_proposal_*.json
+backend/storage/learned_patterns.json
 
 # Variáveis de ambiente
 backend/.env
