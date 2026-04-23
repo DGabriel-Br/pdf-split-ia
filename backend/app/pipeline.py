@@ -1,3 +1,4 @@
+import logging
 import re
 from app.config import Settings
 from app.models import DocumentType, JobStatus, PageResult
@@ -6,6 +7,8 @@ from app.services.pdf_extractor import extract_page_text, get_page_count
 from app.services.ocr_service import ocr_page
 from app.services.classifier import classify_page_sync
 from app.services.pdf_builder import build_output_pdfs
+
+log = logging.getLogger(__name__)
 
 _INVOICE_REF_RE = re.compile(
     r"invoice\s*no\.?\s*[:.]?\s*([A-Z0-9/\-]{4,25})",
@@ -23,7 +26,7 @@ def _fix_doc_boundaries(
     page_results: list[PageResult],
     page_texts: list[str],
 ) -> list[PageResult]:
-    """Correct is_doc_start for consecutive pages that belong to the same document.
+    """Merge consecutive INVOICE pages that share the same invoice reference number.
 
     Multi-page invoices (e.g. Robert Bosch 1/3, 2/3, 3/3) repeat the full header
     on every page, causing the classifier to mark each page as NEW. This pass checks
@@ -45,15 +48,18 @@ def _fix_doc_boundaries(
 
         if cur_ref and prev_ref and cur_ref == prev_ref:
             fixed[i] = cur.model_copy(update={"is_doc_start": False})
+            log.debug("Pagina %d marcada como CONT (mesmo ref: %s)", cur.page_number, cur_ref)
 
     return fixed
 
 
 def run_pipeline(job_id: str, pdf_path: str, settings: Settings) -> None:
     """Synchronous pipeline — runs in Celery thread pool."""
+    log.info("Pipeline iniciado job=%s pdf=%s", job_id, pdf_path)
     try:
         job_store.update(job_id, status=JobStatus.EXTRACTING, message="Abrindo PDF...")
         total_pages = get_page_count(pdf_path)
+        log.info("job=%s total_pages=%d", job_id, total_pages)
 
         job_store.update(
             job_id,
@@ -73,6 +79,10 @@ def run_pipeline(job_id: str, pdf_path: str, settings: Settings) -> None:
                 used_ocr = True
 
             doc_type, confidence, raw, is_doc_start = classify_page_sync(text, i + 1, settings)
+            log.debug(
+                "job=%s page=%d type=%s conf=%.2f ocr=%s label=%s",
+                job_id, i + 1, doc_type.value, confidence, used_ocr, raw,
+            )
 
             result = PageResult(
                 page_number=i + 1,
@@ -85,7 +95,6 @@ def run_pipeline(job_id: str, pdf_path: str, settings: Settings) -> None:
             )
             page_results.append(result)
             page_texts.append(text)
-            job_store.store_page_text(job_id, i + 1, text)
             job_store.append_page(job_id, result)
 
             progress = int(((i + 1) / total_pages) * 80)
@@ -112,6 +121,9 @@ def run_pipeline(job_id: str, pdf_path: str, settings: Settings) -> None:
             pdf_path, page_results, settings.storage_output_dir, job_id
         )
 
+        # Upload file is no longer needed after output PDFs are built
+        job_store.delete_upload_file(job_id)
+
         job_store.update(
             job_id,
             status=JobStatus.DONE,
@@ -119,8 +131,10 @@ def run_pipeline(job_id: str, pdf_path: str, settings: Settings) -> None:
             message="Concluído.",
             output_files=output_paths,
         )
+        log.info("Pipeline concluido job=%s outputs=%s", job_id, list(output_paths.keys()))
 
     except Exception as exc:
+        log.exception("Erro no pipeline job=%s: %s", job_id, exc)
         job_store.update(
             job_id,
             status=JobStatus.ERROR,

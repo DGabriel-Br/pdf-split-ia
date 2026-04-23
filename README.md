@@ -40,9 +40,16 @@ Crie o arquivo `.env` (ou edite o existente):
 OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_TEXT_MODEL=llama3.1
 OCR_TEXT_THRESHOLD=50
+OCR_CONFIDENCE_THRESHOLD=0.4
+# Caminho completo do Tesseract (obrigatório no Windows; deixe vazio para usar o PATH do sistema)
+TESSERACT_CMD=C:\Program Files\Tesseract-OCR\tesseract.exe
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
 STORAGE_UPLOAD_DIR=storage/uploads
 STORAGE_OUTPUT_DIR=storage/outputs
 MAX_UPLOAD_SIZE_MB=50
+JOB_TTL_SECONDS=3600
 CORS_ORIGINS=["http://localhost:5173"]
 ```
 

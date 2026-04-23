@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class DocumentType(str, Enum):
@@ -18,7 +18,7 @@ class JobStatus(str, Enum):
 
 
 class PageResult(BaseModel):
-    page_number: int
+    page_number: int = Field(..., gt=0)
     doc_type: DocumentType
     text_length: int
     used_ocr: bool

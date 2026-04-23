@@ -1,9 +1,11 @@
+import logging
 import httpx
 from app.config import Settings
 from app.models import DocumentType
 
+log = logging.getLogger(__name__)
+
 # ── Title-based signals (checked against first line of extracted text) ──────
-# Most reliable: the document title is almost always on the first line.
 _TITLE_PACKING = [
     "packing list",     # "Packing List", "PACKING LIST"
     "p a c k i n g",   # "P A C K I N G L I S T" (Indian spaced-letter format)
@@ -31,7 +33,7 @@ _TITLE_OTHER = [
 
 # ── Keyword signals for score-based pre-filter (fallback after title check) ──
 _INVOICE_SIGNALS = [
-    "payment terms",    # Very common in invoice headers
+    "payment terms",
     "amount due",
     "unit price",
     "subtotal",
@@ -39,9 +41,9 @@ _INVOICE_SIGNALS = [
     "remittance",
     "bank transfer",
     "wire transfer",
-    "swift code",       # Bank payment details (Chinese supplier invoices)
-    "beneficiary:",     # Bank payment details (Chinese supplier invoices)
-    "currency:",        # Explicit currency field (Chinese supplier)
+    "swift code",
+    "beneficiary:",
+    "currency:",
 ]
 _PACKING_SIGNALS = [
     "packing list",
@@ -52,13 +54,22 @@ _PACKING_SIGNALS = [
     "marks and numbers",
     "n.w.",
     "g.w.",
-    "packing id",       # Indian supplier specific (Prem Industries, Reify)
+    "packing id",
     "cartons",
     "no. of cartons",
 ]
 
 _PREFILTER_MIN_SCORE = 3
 _PREFILTER_DOMINANCE = 2
+
+# Confidence levels — named constants so they can be tuned in one place
+_CONF_EXACT_TITLE   = 0.93
+_CONF_HEADER_TITLE  = 0.92
+_CONF_KEYWORD_SCORE = 0.85
+_CONF_OLLAMA_TYPE   = 0.95
+_CONF_OLLAMA_OTHER  = 0.90
+_CONF_FALLBACK_HIT  = 0.60
+_CONF_FALLBACK_MISS = 0.50
 
 PROMPT_TEMPLATE = """\
 You are a document classification engine for import trade documents.
@@ -117,31 +128,29 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     header = lower[:500]
 
     # 1. Exact first-line title match (Chinese supplier: "Invoice" / "Packing List" alone on a line)
-    # Multi-page formats like "Invoice 2/3" are intentionally excluded so Ollama can
-    # determine NEW vs CONT correctly and keep all pages of the same doc in one PDF.
     if first_line == "invoice":
-        return DocumentType.INVOICE, 0.93, True
+        return DocumentType.INVOICE, _CONF_EXACT_TITLE, True
     if first_line in ("packing list", "packing  list"):
-        return DocumentType.PACKING_LIST, 0.93, True
+        return DocumentType.PACKING_LIST, _CONF_EXACT_TITLE, True
 
-    # 2. Title keywords anywhere in first 250 chars
+    # 2. Title keywords anywhere in first 500 chars
     other_title = any(t in header for t in _TITLE_OTHER)
     packing_title = any(t in header for t in _TITLE_PACKING)
     invoice_title = any(t in header for t in _TITLE_INVOICE)
 
     if other_title and not invoice_title and not packing_title:
-        return DocumentType.OTHER, 0.92, True
+        return DocumentType.OTHER, _CONF_HEADER_TITLE, True
     if packing_title and not invoice_title:
-        return DocumentType.PACKING_LIST, 0.92, True
+        return DocumentType.PACKING_LIST, _CONF_HEADER_TITLE, True
     if invoice_title and not packing_title:
-        return DocumentType.INVOICE, 0.92, True
+        return DocumentType.INVOICE, _CONF_HEADER_TITLE, True
 
     # 3. Keyword score fallback
     inv, pack = _keyword_scores(text)
     if inv >= _PREFILTER_MIN_SCORE and inv >= pack * _PREFILTER_DOMINANCE:
-        return DocumentType.INVOICE, 0.85, True
+        return DocumentType.INVOICE, _CONF_KEYWORD_SCORE, True
     if pack >= _PREFILTER_MIN_SCORE and pack >= inv * _PREFILTER_DOMINANCE:
-        return DocumentType.PACKING_LIST, 0.85, True
+        return DocumentType.PACKING_LIST, _CONF_KEYWORD_SCORE, True
 
     return None
 
@@ -168,10 +177,10 @@ def _call_ollama_sync(text: str, settings: Settings) -> str:
 def _keyword_fallback(text: str) -> tuple[DocumentType, float]:
     inv, pack = _keyword_scores(text)
     if inv > pack and inv >= 2:
-        return DocumentType.INVOICE, 0.6
+        return DocumentType.INVOICE, _CONF_FALLBACK_HIT
     if pack > inv and pack >= 2:
-        return DocumentType.PACKING_LIST, 0.6
-    return DocumentType.OTHER, 0.5
+        return DocumentType.PACKING_LIST, _CONF_FALLBACK_HIT
+    return DocumentType.OTHER, _CONF_FALLBACK_MISS
 
 
 def _parse_response(raw: str, text: str) -> tuple[DocumentType, float, bool]:
@@ -180,11 +189,11 @@ def _parse_response(raw: str, text: str) -> tuple[DocumentType, float, bool]:
     pos_token = tokens[1] if len(tokens) > 1 else "NEW"
 
     if type_token == "INVOICE":
-        doc_type, confidence = DocumentType.INVOICE, 0.95
+        doc_type, confidence = DocumentType.INVOICE, _CONF_OLLAMA_TYPE
     elif type_token in ("PACKING_LIST", "PACKING"):
-        doc_type, confidence = DocumentType.PACKING_LIST, 0.95
+        doc_type, confidence = DocumentType.PACKING_LIST, _CONF_OLLAMA_TYPE
     elif type_token == "OTHER":
-        doc_type, confidence = DocumentType.OTHER, 0.90
+        doc_type, confidence = DocumentType.OTHER, _CONF_OLLAMA_OTHER
     else:
         doc_type, confidence = _keyword_fallback(text)
 
@@ -193,9 +202,8 @@ def _parse_response(raw: str, text: str) -> tuple[DocumentType, float, bool]:
 
 
 def classify_page_sync(text: str, page_number: int, settings: Settings) -> tuple[DocumentType, float, str, bool]:
-    """Synchronous — called from threadpool pipeline.
+    """Returns (DocumentType, confidence, raw_label, is_doc_start).
 
-    Returns (DocumentType, confidence, raw_label, is_doc_start).
     Pre-filter skips Ollama for pages with unambiguous title or keyword signal.
     Falls back to keyword scan if Ollama is unavailable or returns unexpected output.
     """
@@ -207,6 +215,7 @@ def classify_page_sync(text: str, page_number: int, settings: Settings) -> tuple
     try:
         raw = _call_ollama_sync(text, settings)
     except Exception as exc:
+        log.warning("Ollama indisponivel na pagina %d: %s", page_number, exc)
         raw = f"[ollama error: {exc}]"
         doc_type, confidence = _keyword_fallback(text)
         return doc_type, confidence, raw, True

@@ -1,12 +1,15 @@
+import logging
 import os
 from PyPDF2 import PdfReader, PdfWriter
 from app.models import DocumentType, PageResult
+
+log = logging.getLogger(__name__)
 
 _SPLIT_TYPES = {DocumentType.INVOICE, DocumentType.PACKING_LIST}
 
 
 def _consecutive_groups(page_results: list[PageResult]) -> list[tuple[DocumentType, list[PageResult]]]:
-    """Return (doc_type, pages) groups, splitting also when a new document starts within the same type."""
+    """Return (doc_type, pages) groups, splitting when a new document starts within the same type."""
     groups: list[tuple[DocumentType, list[PageResult]]] = []
     current_type: DocumentType | None = None
     current_pages: list[PageResult] = []
@@ -40,6 +43,7 @@ def build_output_pdfs(
     Returns mapping of key -> absolute file path.
     """
     reader = PdfReader(source_pdf_path)
+    total_pages = len(reader.pages)
     job_out_dir = os.path.join(output_dir, job_id)
     os.makedirs(job_out_dir, exist_ok=True)
 
@@ -62,7 +66,15 @@ def build_output_pdfs(
 
         writer = PdfWriter()
         for page in pages:
-            writer.add_page(reader.pages[page.page_number - 1])
+            idx = page.page_number - 1
+            if 0 <= idx < total_pages:
+                writer.add_page(reader.pages[idx])
+            else:
+                log.warning("Pagina %d fora dos limites do PDF (total: %d) — ignorada", page.page_number, total_pages)
+
+        if len(writer.pages) == 0:
+            log.warning("Bloco %s sem paginas validas, ignorado.", key)
+            continue
 
         path = os.path.join(job_out_dir, filename)
         with open(path, "wb") as f:

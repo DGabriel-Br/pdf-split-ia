@@ -1,23 +1,27 @@
+import logging
 import re
 import fitz  # PyMuPDF — page rendering only
 import pytesseract
 from PIL import Image
 import io
+from app.config import get_settings
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+log = logging.getLogger(__name__)
 
+_OSD_CONFIDENCE_THRESHOLD = 0.4
 
-_OSD_CONFIDENCE_THRESHOLD = 0.4  # below this, OSD rotation is unreliable
+# Apply tesseract_cmd from settings if configured; otherwise rely on system PATH.
+_cmd = get_settings().tesseract_cmd
+if _cmd:
+    pytesseract.pytesseract.tesseract_cmd = _cmd
 
 
 def _detect_rotation(img: Image.Image) -> int:
-    """Use Tesseract OSD to detect how many degrees to rotate the image counter-clockwise
-    (PIL convention) to make text upright. Returns 0, 90, 180, or 270.
+    """Use Tesseract OSD to detect how many degrees to rotate counter-clockwise (PIL convention).
 
     Tesseract OSD "Rotate" is clockwise; PIL rotate() is counter-clockwise,
-    so we convert: pil_angle = (360 - osd_angle) % 360.
-    Only applies rotation when OSD orientation confidence >= _OSD_CONFIDENCE_THRESHOLD.
-    Falls back to 0 on failure or low confidence.
+    so: pil_angle = (360 - osd_angle) % 360.
+    Only applies rotation when OSD confidence >= _OSD_CONFIDENCE_THRESHOLD.
     """
     try:
         osd = pytesseract.image_to_osd(img, config="--psm 0 -c min_characters_to_try=5")
@@ -35,12 +39,7 @@ def _detect_rotation(img: Image.Image) -> int:
 
 
 def ocr_page(pdf_path: str, page_index: int, confidence_floor: float = 0.4) -> str:
-    """Render page to image at 2x zoom (~144 DPI), correct rotation if needed,
-    and run Tesseract OCR.
-
-    Returns extracted text. confidence_floor kept for API compatibility but
-    Tesseract filters low-confidence words internally.
-    """
+    """Render page to image at 2x zoom (~144 DPI), correct rotation, and run Tesseract OCR."""
     doc = fitz.open(pdf_path)
     page = doc[page_index]
     mat = fitz.Matrix(2.0, 2.0)
@@ -50,6 +49,7 @@ def ocr_page(pdf_path: str, page_index: int, confidence_floor: float = 0.4) -> s
 
     rotation = _detect_rotation(img)
     if rotation != 0:
+        log.debug("Pagina %d: rotacionada %d graus (PIL)", page_index + 1, rotation)
         img = img.rotate(rotation, expand=True)
 
     data = pytesseract.image_to_data(

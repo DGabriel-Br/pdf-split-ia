@@ -41,8 +41,9 @@ export default function App() {
   const [jobState, setJobState] = useState(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState(null);
+  const [pollerError, setPollerError] = useState(null);
 
-  useJobPoller(jobId, setJobState);
+  useJobPoller(jobId, setJobState, setPollerError);
 
   async function handleUpload(file) {
     setUploading(true);
@@ -51,7 +52,11 @@ export default function App() {
       const { job_id } = await api.uploadPdf(file);
       setJobId(job_id);
     } catch (err) {
-      setUploadError(err?.response?.data?.detail ?? "Erro ao enviar arquivo. Verifique o servidor.");
+      const detail = err?.response?.data?.detail;
+      const networkFail = !err?.response;
+      setUploadError(
+        detail ?? (networkFail ? "Sem resposta do servidor. Verifique sua conexão." : "Erro ao enviar arquivo.")
+      );
     } finally {
       setUploading(false);
     }
@@ -61,6 +66,7 @@ export default function App() {
     setJobId(null);
     setJobState(null);
     setUploadError(null);
+    setPollerError(null);
   }
 
   const isProcessing = jobState && PROCESSING_STATUSES.includes(jobState.status);
@@ -94,7 +100,9 @@ export default function App() {
         )}
 
         <div className="card">
-          {uploadError && <div className="error-box">{uploadError}</div>}
+          {(uploadError || pollerError) && (
+            <div className="error-box">{uploadError || pollerError}</div>
+          )}
 
           {isError && (
             <div className="error-box">

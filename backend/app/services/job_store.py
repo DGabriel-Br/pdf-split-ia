@@ -1,18 +1,38 @@
-import json
+import logging
+import os
+import shutil
 import time
 import redis
+from app.config import get_settings
 from app.models import JobState, JobStatus, PageResult
 
-_redis = redis.Redis(host="localhost", port=6379, db=0, decode_responses=True)
-_JOB_TTL = 3600  # seconds
+log = logging.getLogger(__name__)
+
+_pool: redis.ConnectionPool | None = None
+
+
+def _get_redis() -> redis.Redis:
+    global _pool
+    if _pool is None:
+        s = get_settings()
+        _pool = redis.ConnectionPool(
+            host=s.redis_host,
+            port=s.redis_port,
+            db=s.redis_db,
+            decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5,
+            max_connections=10,
+        )
+    return redis.Redis(connection_pool=_pool)
 
 
 def _key(job_id: str) -> str:
     return f"job:{job_id}"
 
 
-def _text_key(job_id: str) -> str:
-    return f"job:{job_id}:texts"
+def _ttl() -> int:
+    return get_settings().job_ttl_seconds
 
 
 class JobStore:
@@ -23,42 +43,64 @@ class JobStore:
             message="Na fila...",
             created_at=time.time(),
         )
-        _redis.setex(_key(job_id), _JOB_TTL, state.model_dump_json())
+        _get_redis().setex(_key(job_id), _ttl(), state.model_dump_json())
         return state
 
     def get(self, job_id: str) -> JobState | None:
-        raw = _redis.get(_key(job_id))
+        raw = _get_redis().get(_key(job_id))
         if raw is None:
             return None
         return JobState.model_validate_json(raw)
 
     def update(self, job_id: str, **kwargs) -> None:
-        raw = _redis.get(_key(job_id))
+        r = _get_redis()
+        raw = r.get(_key(job_id))
         if raw is None:
             return
         state = JobState.model_validate_json(raw)
         updated = state.model_copy(update=kwargs)
-        _redis.setex(_key(job_id), _JOB_TTL, updated.model_dump_json())
+        r.setex(_key(job_id), _ttl(), updated.model_dump_json())
 
     def append_page(self, job_id: str, page: PageResult) -> None:
-        raw = _redis.get(_key(job_id))
+        r = _get_redis()
+        raw = r.get(_key(job_id))
         if raw is None:
             return
         state = JobState.model_validate_json(raw)
         new_pages = list(state.pages) + [page]
         updated = state.model_copy(update={"pages": new_pages})
-        _redis.setex(_key(job_id), _JOB_TTL, updated.model_dump_json())
+        r.setex(_key(job_id), _ttl(), updated.model_dump_json())
 
-    def store_page_text(self, job_id: str, page_number: int, text: str) -> None:
-        _redis.hset(_text_key(job_id), str(page_number), text[:400])
-        _redis.expire(_text_key(job_id), _JOB_TTL)
+    def delete_upload_file(self, job_id: str) -> None:
+        """Remove the uploaded PDF after pipeline processing is complete."""
+        upload_dir = get_settings().storage_upload_dir
+        path = os.path.join(upload_dir, f"{job_id}.pdf")
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                log.info("Upload removido: %s", path)
+        except OSError as exc:
+            log.warning("Falha ao remover upload %s: %s", path, exc)
 
-    def get_page_text(self, job_id: str, page_number: int) -> str:
-        return _redis.hget(_text_key(job_id), str(page_number)) or ""
-
-    def purge_expired(self, ttl_seconds: int) -> int:
-        # Redis TTL handles expiration automatically
-        return 0
+    def cleanup_old_files(self, upload_dir: str, output_dir: str, max_age_seconds: int) -> int:
+        """Delete files and output directories older than max_age_seconds. Called on startup."""
+        now = time.time()
+        removed = 0
+        for directory in (upload_dir, output_dir):
+            if not os.path.isdir(directory):
+                continue
+            for entry in os.scandir(directory):
+                try:
+                    age = now - entry.stat().st_mtime
+                    if age > max_age_seconds:
+                        if entry.is_file():
+                            os.remove(entry.path)
+                        elif entry.is_dir():
+                            shutil.rmtree(entry.path)
+                        removed += 1
+                except OSError as exc:
+                    log.warning("Falha ao limpar %s: %s", entry.path, exc)
+        return removed
 
 
 job_store = JobStore()
