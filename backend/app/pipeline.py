@@ -127,7 +127,8 @@ def run_pipeline(job_id: str, pdf_path: str, settings: Settings) -> None:
             progress=100,
             message="Concluído.",
             output_files=output_paths,
-            upload_file=pdf_path,  # kept for reclassification; startup cleanup removes it after TTL
+            upload_file=pdf_path,
+            page_texts_preview={str(i + 1): text[:300] for i, text in enumerate(page_texts)},
         )
         log.info("Pipeline concluido job=%s outputs=%s", job_id, list(output_paths.keys()))
 

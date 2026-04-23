@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.config import get_settings
-from app.routers import upload, jobs
+from app.routers import upload, jobs, corrections
 from app.services.job_store import job_store
 
 log = logging.getLogger(__name__)
@@ -52,6 +52,7 @@ def create_app() -> FastAPI:
     )
     app.include_router(upload.router, tags=["upload"])
     app.include_router(jobs.router, tags=["jobs"])
+    app.include_router(corrections.router, tags=["corrections"])
 
     frontend_dist = os.path.normpath(
         os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist")

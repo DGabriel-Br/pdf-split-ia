@@ -36,4 +36,5 @@ class JobState(BaseModel):
     output_files: dict[str, str] = {}
     error: str | None = None
     created_at: float
-    upload_file: str | None = None  # kept after pipeline for reclassification
+    upload_file: str | None = None          # kept after pipeline for reclassification
+    page_texts_preview: dict[str, str] = {}  # str(page_number) -> first 300 chars of OCR/extracted text

@@ -9,6 +9,7 @@ __pycache__/
 # Backend storage (uploads e outputs gerados em runtime)
 backend/storage/uploads/
 backend/storage/outputs/
+backend/storage/corrections.jsonl
 
 # Variáveis de ambiente
 backend/.env

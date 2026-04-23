@@ -11,6 +11,7 @@ from app.config import Settings, get_settings
 from app.models import DocumentType, JobState, JobStatus, PageResult
 from app.services.job_store import job_store
 from app.services.pdf_builder import build_output_pdfs
+from app.services.correction_store import save_corrections
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +84,21 @@ async def reclassify(
                 "is_doc_start": True if type_changed else page.is_doc_start,
             })
         )
+
+    # Persist corrections for future pre-filter review
+    changed = [
+        {
+            "page_number": p.page_number,
+            "original_type": original_types[p.page_number].value,
+            "corrected_type": p.doc_type.value,
+            "raw_label": p.raw_label,
+            "confidence": round(p.confidence, 3),
+            "text_preview": state.page_texts_preview.get(str(p.page_number), ""),
+        }
+        for p in updated_pages
+        if p.doc_type != original_types[p.page_number]
+    ]
+    save_corrections(job_id, changed)
 
     # Clear old output directory so stale files don't linger
     job_out_dir = os.path.join(settings.storage_output_dir, job_id)
