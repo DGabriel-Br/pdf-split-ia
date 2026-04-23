@@ -36,3 +36,4 @@ class JobState(BaseModel):
     output_files: dict[str, str] = {}
     error: str | None = None
     created_at: float
+    upload_file: str | None = None  # kept after pipeline for reclassification

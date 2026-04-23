@@ -121,15 +121,13 @@ def run_pipeline(job_id: str, pdf_path: str, settings: Settings) -> None:
             pdf_path, page_results, settings.storage_output_dir, job_id
         )
 
-        # Upload file is no longer needed after output PDFs are built
-        job_store.delete_upload_file(job_id)
-
         job_store.update(
             job_id,
             status=JobStatus.DONE,
             progress=100,
             message="Concluído.",
             output_files=output_paths,
+            upload_file=pdf_path,  # kept for reclassification; startup cleanup removes it after TTL
         )
         log.info("Pipeline concluido job=%s outputs=%s", job_id, list(output_paths.keys()))
 

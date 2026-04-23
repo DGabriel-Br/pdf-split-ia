@@ -1,12 +1,18 @@
 import io
+import logging
 import os
 import re
+import shutil
 import zipfile
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 from app.config import Settings, get_settings
-from app.models import JobState, JobStatus
+from app.models import DocumentType, JobState, JobStatus, PageResult
 from app.services.job_store import job_store
+from app.services.pdf_builder import build_output_pdfs
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -36,12 +42,60 @@ def _safe_output_paths(
     return safe
 
 
+class ReclassifyRequest(BaseModel):
+    page_types: dict[int, DocumentType]
+
+
 @router.get("/jobs/{job_id}", response_model=JobState)
 async def get_job_status(job_id: str) -> JobState:
     state = job_store.get(job_id)
     if state is None:
         raise HTTPException(status_code=404, detail="Job não encontrado.")
     return state
+
+
+@router.post("/jobs/{job_id}/reclassify", response_model=JobState)
+async def reclassify(
+    job_id: str,
+    body: ReclassifyRequest,
+    settings: Settings = Depends(get_settings),
+) -> JobState:
+    state = job_store.get(job_id)
+    if state is None:
+        raise HTTPException(status_code=404, detail="Job não encontrado.")
+    if state.status != JobStatus.DONE:
+        raise HTTPException(status_code=409, detail="Processamento ainda não concluído.")
+    if not state.upload_file or not os.path.isfile(state.upload_file):
+        raise HTTPException(
+            status_code=410,
+            detail="Arquivo original não disponível. O prazo de reclassificação expirou.",
+        )
+
+    # Apply corrections; pages whose type changed get is_doc_start=True
+    original_types = {p.page_number: p.doc_type for p in state.pages}
+    updated_pages: list[PageResult] = []
+    for page in sorted(state.pages, key=lambda p: p.page_number):
+        new_type = body.page_types.get(page.page_number, page.doc_type)
+        type_changed = new_type != original_types[page.page_number]
+        updated_pages.append(
+            page.model_copy(update={
+                "doc_type": new_type,
+                "is_doc_start": True if type_changed else page.is_doc_start,
+            })
+        )
+
+    # Clear old output directory so stale files don't linger
+    job_out_dir = os.path.join(settings.storage_output_dir, job_id)
+    if os.path.isdir(job_out_dir):
+        shutil.rmtree(job_out_dir)
+
+    output_paths = build_output_pdfs(
+        state.upload_file, updated_pages, settings.storage_output_dir, job_id
+    )
+    log.info("Reclassificacao concluida job=%s outputs=%s", job_id, list(output_paths.keys()))
+
+    job_store.update(job_id, pages=updated_pages, output_files=output_paths)
+    return job_store.get(job_id)
 
 
 @router.get("/jobs/{job_id}/download-all")

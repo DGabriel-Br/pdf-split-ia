@@ -22,4 +22,8 @@ export const api = {
   getDownloadAllUrl(jobId) {
     return `/jobs/${jobId}/download-all`;
   },
+
+  reclassify(jobId, pageTypes) {
+    return http.post(`/jobs/${jobId}/reclassify`, { page_types: pageTypes }).then(r => r.data);
+  },
 };
