@@ -78,7 +78,8 @@ Word 1 — Document type:
 Word 2 — Page position:
   NEW   - first page of a new document. Has a document header with issuer, recipient, document number
           and date. Examples: "Invoice No.", "Bill To", "Shipper", "Page 1 of N", company letterhead.
-  CONT  - continuation of the previous document. Contains only line items or data, no full header.
+  CONT  - continuation of the previous document. Shows "2/3", "3/3", "Page 2", "2 of 3" or similar
+          multi-page indicators, or contains only line items / totals with no full document header.
 
 Rules:
 1. The DOCUMENT TITLE (first prominent line) is the most reliable signal:
@@ -115,8 +116,10 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     lower = stripped.lower()
     header = lower[:500]
 
-    # 1. First-line title match — "Invoice" alone or "Invoice N/M" / "Invoice 1 of 3" format
-    if first_line == "invoice" or first_line.startswith("invoice "):
+    # 1. Exact first-line title match (Chinese supplier: "Invoice" / "Packing List" alone on a line)
+    # Multi-page formats like "Invoice 2/3" are intentionally excluded so Ollama can
+    # determine NEW vs CONT correctly and keep all pages of the same doc in one PDF.
+    if first_line == "invoice":
         return DocumentType.INVOICE, 0.93, True
     if first_line in ("packing list", "packing  list"):
         return DocumentType.PACKING_LIST, 0.93, True
