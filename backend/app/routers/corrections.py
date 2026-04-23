@@ -53,6 +53,7 @@ async def corrections_report() -> dict:
                     "date": r["timestamp"][:10],
                     "job_id": r["job_id"][:8],
                     "page": r["page_number"],
+                    "pdf_page": r.get("pdf_page"),
                     "text_preview": r.get("text_preview", "")[:250],
                 }
                 for r in items[:5]

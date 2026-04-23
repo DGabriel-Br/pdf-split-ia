@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     storage_output_dir: str = "storage/outputs"
     job_ttl_seconds: int = 3600
     corrections_file: str = "storage/corrections.jsonl"
+    corrections_dir: str = "storage/corrections"
     cors_origins: list[str] = ["http://localhost:5173"]
 
     model_config = SettingsConfigDict(env_file=".env")

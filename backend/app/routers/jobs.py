@@ -98,7 +98,7 @@ async def reclassify(
         for p in updated_pages
         if p.doc_type != original_types[p.page_number]
     ]
-    save_corrections(job_id, changed)
+    save_corrections(job_id, changed, upload_file=state.upload_file)
 
     # Clear old output directory so stale files don't linger
     job_out_dir = os.path.join(settings.storage_output_dir, job_id)
