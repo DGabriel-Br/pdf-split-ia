@@ -1,8 +1,15 @@
 const STEPS = [
-  { id: "EXTRACT",   statuses: ["QUEUED", "EXTRACTING"], label: "Extração" },
-  { id: "CLASSIFY",  statuses: ["CLASSIFYING"],           label: "Classificação" },
-  { id: "BUILD",     statuses: ["BUILDING"],              label: "Geração" },
+  { id: "EXTRACT",  number: 1, statuses: ["QUEUED", "EXTRACTING"], label: "Extração" },
+  { id: "CLASSIFY", number: 2, statuses: ["CLASSIFYING"],           label: "Classificação" },
+  { id: "BUILD",    number: 3, statuses: ["BUILDING"],              label: "Geração" },
 ];
+
+const STATUS_TITLES = {
+  QUEUED:      "Preparando processamento",
+  EXTRACTING:  "Extraindo páginas do PDF",
+  CLASSIFYING: "Identificando documentos com IA",
+  BUILDING:    "Gerando arquivos separados",
+};
 
 function stepState(step, currentStatus) {
   const idx = STEPS.findIndex(s => s.id === step.id);
@@ -15,22 +22,28 @@ function stepState(step, currentStatus) {
 
 function CheckIcon() {
   return (
-    <svg viewBox="0 0 12 12" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 12 12" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="2,6 5,9 10,3"/>
     </svg>
   );
 }
 
 export function StatusPoller({ job }) {
+  const title = STATUS_TITLES[job.status] ?? "Processando";
+
   return (
-    <div>
+    <div className="status-poller">
+      <div className="status-poller-header">
+        <h2 className="status-poller-title">{title}</h2>
+      </div>
+
       <div className="pipeline">
         {STEPS.map((step) => {
           const state = stepState(step, job.status);
           return (
             <div key={step.id} className={`pipeline-step ${state}`}>
               <div className="step-dot">
-                {state === "done" ? <CheckIcon /> : step.id.slice(0, 2)}
+                {state === "done" ? <CheckIcon /> : step.number}
               </div>
               <span className="step-label">{step.label}</span>
             </div>

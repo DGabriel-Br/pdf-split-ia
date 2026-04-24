@@ -9,24 +9,30 @@ export function useJobPoller(jobId, onUpdate, onNetworkError, intervalMs = 2000)
     if (!jobId) return;
 
     let consecutiveErrors = 0;
+    let stopped = false;
 
-    const id = setInterval(async () => {
+    async function poll() {
+      if (stopped) return;
       try {
         const state = await api.getJobStatus(jobId);
         consecutiveErrors = 0;
         onUpdate(state);
         if (TERMINAL_STATES.includes(state.status)) {
-          clearInterval(id);
+          stopped = true;
+          return;
         }
       } catch {
         consecutiveErrors++;
         if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-          clearInterval(id);
+          stopped = true;
           onNetworkError?.("Servidor inacessível após várias tentativas. Verifique sua conexão.");
+          return;
         }
       }
-    }, intervalMs);
+      if (!stopped) setTimeout(poll, intervalMs);
+    }
 
-    return () => clearInterval(id);
+    poll();
+    return () => { stopped = true; };
   }, [jobId, onUpdate, onNetworkError, intervalMs]);
 }

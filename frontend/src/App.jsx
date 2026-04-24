@@ -76,15 +76,7 @@ export default function App() {
   return (
     <>
       <header className="app-header">
-        <div className="app-logo">
-          <div className="app-logo-mark">
-            <svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3 2h7l3 3v9H3V2z"/>
-              <path d="M10 2v3h3" fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/>
-            </svg>
-          </div>
-          <span className="app-logo-text">PDF Split IA</span>
-        </div>
+        <img src="/logo-brasiliense.webp" alt="Brasiliense" className="header-logo" />
         <button className="theme-toggle" onClick={toggleDark} title="Alternar tema">
           {dark ? <SunIcon /> : <MoonIcon />}
         </button>
@@ -92,38 +84,56 @@ export default function App() {
 
       <main className="app-main">
         <div className="app-column">
-        {!isDone && (
-          <div className="app-hero">
-            <h1>Separação inteligente de documentos</h1>
-            <p>Envie o PDF consolidado do pré-alerta e a IA identifica faturas, packing lists e outros documentos automaticamente.</p>
-          </div>
-        )}
 
-        <div className="card">
-          {(uploadError || pollerError) && (
-            <div className="error-box">{uploadError || pollerError}</div>
+          {/* Estado de upload: sem card, o upload-layout é o container visual */}
+          {!jobId && (
+            <>
+              {uploadError && (
+                <div className="card" style={{ marginBottom: 16 }}>
+                  <div className="error-box" style={{ marginBottom: 0 }}>{uploadError}</div>
+                </div>
+              )}
+              <UploadZone onUpload={handleUpload} loading={uploading} />
+            </>
           )}
 
-          {isError && (
-            <div className="error-box">
-              {jobState.error || jobState.message}
-              <br />
-              <button className="btn secondary" style={{ marginTop: 14 }} onClick={handleReset}>
-                Tentar novamente
-              </button>
+          {/* Estado com job ativo: card padrão */}
+          {jobId && (
+            <div className="card">
+              {pollerError && (
+                <div className="error-box">
+                  {pollerError}
+                  <br />
+                  <button className="btn secondary" style={{ marginTop: 14 }} onClick={handleReset}>
+                    Reiniciar
+                  </button>
+                </div>
+              )}
+
+              {isError && (
+                <div className="error-box">
+                  {jobState.error || jobState.message}
+                  <br />
+                  <button className="btn secondary" style={{ marginTop: 14 }} onClick={handleReset}>
+                    Tentar novamente
+                  </button>
+                </div>
+              )}
+
+              {!jobState && !pollerError && (
+                <div className="status-message" style={{ padding: "24px 0", textAlign: "center", color: "var(--text-3)" }}>
+                  Aguardando servidor...
+                </div>
+              )}
+
+              {isProcessing && <StatusPoller job={jobState} />}
+
+              {isDone && (
+                <ResultPanel job={jobState} jobId={jobId} onReset={handleReset} />
+              )}
             </div>
           )}
 
-          {!jobId && (
-            <UploadZone onUpload={handleUpload} loading={uploading} />
-          )}
-
-          {isProcessing && <StatusPoller job={jobState} />}
-
-          {isDone && (
-            <ResultPanel job={jobState} jobId={jobId} onReset={handleReset} />
-          )}
-        </div>
         </div>
       </main>
     </>

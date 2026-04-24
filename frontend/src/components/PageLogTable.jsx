@@ -59,9 +59,11 @@ export function PageLogTable({ pages, pageTypes, onTypeChange }) {
                       {(p.confidence * 100).toFixed(0)}%
                     </span>
                   </td>
-                  <td style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {p.used_ocr     && <span className="tag tag-ocr">OCR</span>}
-                    {p.is_doc_start && <span className="tag tag-start">início</span>}
+                  <td>
+                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                      {p.used_ocr     && <span className="tag tag-ocr">OCR</span>}
+                      {p.is_doc_start && <span className="tag tag-start">início</span>}
+                    </div>
                   </td>
                   <td>{p.text_length}</td>
                 </tr>
