@@ -5,7 +5,7 @@ from app.config import get_settings
 _s = get_settings()
 _broker = f"redis://{_s.redis_host}:{_s.redis_port}/{_s.redis_db}"
 
-celery_app = Celery("pdf_split", broker=_broker, backend=_broker)
+celery_app = Celery("pdf_split", broker=_broker, backend=_broker, include=["app.tasks"])
 
 celery_app.conf.update(
     task_serializer="json",
