@@ -114,7 +114,7 @@ export default function App() {
             </div>
           )}
 
-          {!jobId && !isError && (
+          {!jobId && (
             <UploadZone onUpload={handleUpload} loading={uploading} />
           )}
 

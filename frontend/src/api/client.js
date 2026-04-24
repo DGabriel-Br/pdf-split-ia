@@ -15,10 +15,6 @@ export const api = {
     return http.get(`/jobs/${jobId}`).then((r) => r.data);
   },
 
-  getDownloadUrl(jobId, docType) {
-    return `/jobs/${jobId}/download/${docType}`;
-  },
-
   getDownloadAllUrl(jobId) {
     return `/jobs/${jobId}/download-all`;
   },

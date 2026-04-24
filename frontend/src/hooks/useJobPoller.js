@@ -28,5 +28,5 @@ export function useJobPoller(jobId, onUpdate, onNetworkError, intervalMs = 2000)
     }, intervalMs);
 
     return () => clearInterval(id);
-  }, [jobId, onUpdate, onNetworkError]);
+  }, [jobId, onUpdate, onNetworkError, intervalMs]);
 }
