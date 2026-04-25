@@ -100,7 +100,7 @@ def _call_claude(prompt: str) -> dict:
 
     client = anthropic.Anthropic(api_key=s.anthropic_api_key)
     message = client.messages.create(
-        model="claude-opus-4-7",
+        model=s.reviewer_model,
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )

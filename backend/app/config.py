@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     corrections_dir: str = "storage/corrections"
     learned_patterns_file: str = "storage/learned_patterns.json"
     anthropic_api_key: str = ""
+    reviewer_model: str = "claude-opus-4-7"
+    admin_token: str = ""
     cors_origins: list[str] = ["http://localhost:5173"]
 
     model_config = SettingsConfigDict(env_file=".env")

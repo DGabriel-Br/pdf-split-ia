@@ -37,6 +37,9 @@ async def upload_pdf(
         chunks.append(chunk)
 
     content = b"".join(chunks)
+    if not content[:4].startswith(b'%PDF'):
+        raise HTTPException(status_code=400, detail="O arquivo não é um PDF válido.")
+
     job_id = uuid.uuid4().hex
     file_path = os.path.join(settings.storage_upload_dir, f"{job_id}.pdf")
 

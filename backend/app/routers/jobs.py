@@ -111,7 +111,10 @@ async def reclassify(
     log.info("Reclassificacao concluida job=%s outputs=%s", job_id, list(output_paths.keys()))
 
     job_store.update(job_id, pages=updated_pages, output_files=output_paths)
-    return job_store.get(job_id)
+    result = job_store.get(job_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Job expirou durante reclassificação.")
+    return result
 
 
 @router.get("/jobs/{job_id}/download-all")
