@@ -62,13 +62,13 @@ def load_unreviewed() -> list[dict]:
     path = _last_review_path()
     if not os.path.isfile(path):
         return all_records
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         last_ts = f.read().strip()
     return [r for r in all_records if r["timestamp"] > last_ts]
 
 
 def save_last_review_time(ts: str) -> None:
-    with open(_last_review_path(), "w") as f:
+    with open(_last_review_path(), "w", encoding="utf-8") as f:
         f.write(ts)
 
 

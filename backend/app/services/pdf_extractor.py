@@ -23,6 +23,27 @@ def extract_page_text(pdf_path: str, page_index: int) -> tuple[str, int]:
         return "", 0
 
 
+def extract_all_page_texts(pdf_path: str) -> list[tuple[str, int]]:
+    """Open the PDF once and extract text from every page.
+
+    Returns a list of (text, char_count) tuples, one per page.
+    """
+    results: list[tuple[str, int]] = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                try:
+                    text = page.extract_text(x_tolerance=3, y_tolerance=3) or ""
+                    text = text.strip()
+                    results.append((text, len(text)))
+                except Exception as exc:
+                    log.warning("Falha ao extrair texto de pagina: %s", exc)
+                    results.append(("", 0))
+    except Exception as exc:
+        log.warning("Falha ao abrir PDF para extracao em lote: %s", exc)
+    return results
+
+
 def get_page_count(pdf_path: str) -> int:
     with pdfplumber.open(pdf_path) as pdf:
         return len(pdf.pages)

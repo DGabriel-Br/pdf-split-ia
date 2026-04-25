@@ -56,6 +56,7 @@ class JobStore:
         r = _get_redis()
         raw = r.get(_key(job_id))
         if raw is None:
+            log.warning("Update para job inexistente: %s", job_id)
             return
         state = JobState.model_validate_json(raw)
         updated = state.model_copy(update=kwargs)
@@ -65,6 +66,7 @@ class JobStore:
         r = _get_redis()
         raw = r.get(_key(job_id))
         if raw is None:
+            log.warning("append_page para job inexistente: %s", job_id)
             return
         state = JobState.model_validate_json(raw)
         new_pages = list(state.pages) + [page]

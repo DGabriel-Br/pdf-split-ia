@@ -3,7 +3,7 @@ import re
 from app.config import Settings
 from app.models import DocumentType, JobStatus, PageResult
 from app.services.job_store import job_store
-from app.services.pdf_extractor import extract_page_text, get_page_count
+from app.services.pdf_extractor import extract_all_page_texts, get_page_count
 from app.services.ocr_service import ocr_page
 from app.services.classifier import classify_page_sync
 from app.services.pdf_builder import build_output_pdfs
@@ -67,11 +67,12 @@ def run_pipeline(job_id: str, pdf_path: str, settings: Settings) -> None:
             message=f"Classificando 0 / {total_pages} páginas...",
         )
 
+        all_page_texts = extract_all_page_texts(pdf_path)
         page_results: list[PageResult] = []
         page_texts: list[str] = []
 
         for i in range(total_pages):
-            text, char_count = extract_page_text(pdf_path, i)
+            text, char_count = all_page_texts[i] if i < len(all_page_texts) else ("", 0)
             used_ocr = False
 
             if char_count < settings.ocr_text_threshold:

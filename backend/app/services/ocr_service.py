@@ -41,11 +41,13 @@ def _detect_rotation(img: Image.Image) -> int:
 def ocr_page(pdf_path: str, page_index: int, confidence_floor: float = 0.4) -> str:
     """Render page to image at 2x zoom (~144 DPI), correct rotation, and run Tesseract OCR."""
     doc = fitz.open(pdf_path)
-    page = doc[page_index]
-    mat = fitz.Matrix(2.0, 2.0)
-    pix = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
-    img = Image.open(io.BytesIO(pix.tobytes("png")))
-    doc.close()
+    try:
+        page = doc[page_index]
+        mat = fitz.Matrix(2.0, 2.0)
+        pix = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
+        img = Image.open(io.BytesIO(pix.tobytes("png")))
+    finally:
+        doc.close()
 
     rotation = _detect_rotation(img)
     if rotation != 0:

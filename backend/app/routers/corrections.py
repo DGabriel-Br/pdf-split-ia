@@ -1,8 +1,19 @@
 from collections import Counter, defaultdict
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from app.config import Settings, get_settings
 from app.services.correction_store import load_all, load_unreviewed
 
 router = APIRouter()
+
+
+def _require_admin(
+    x_admin_token: str | None = Header(default=None),
+    settings: Settings = Depends(get_settings),
+) -> None:
+    if not settings.admin_token:
+        raise HTTPException(status_code=503, detail="Admin token não configurado.")
+    if x_admin_token != settings.admin_token:
+        raise HTTPException(status_code=401, detail="Token inválido.")
 
 _STOPWORDS = {
     "the", "and", "for", "this", "that", "with", "from", "have", "been",
@@ -27,7 +38,10 @@ def _keyword_candidates(texts: list[str], n: int = 12) -> list[str]:
 
 
 @router.post("/corrections/trigger-review", status_code=202)
-async def trigger_review(background_tasks: BackgroundTasks) -> dict:
+async def trigger_review(
+    background_tasks: BackgroundTasks,
+    _: None = Depends(_require_admin),
+) -> dict:
     """Dispara a revisão do classificador manualmente em background."""
     pending = load_unreviewed()
     if not pending:
@@ -39,7 +53,7 @@ async def trigger_review(background_tasks: BackgroundTasks) -> dict:
 
 
 @router.get("/corrections/report")
-async def corrections_report() -> dict:
+async def corrections_report(_: None = Depends(_require_admin)) -> dict:
     """
     Returns a grouped summary of user corrections for review.
     Use this to identify patterns and improve the classifier pre-filter.
