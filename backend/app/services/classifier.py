@@ -127,6 +127,9 @@ def _keyword_scores(text: str) -> tuple[int, int]:
 
 def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     """Title-first pre-filter, then keyword scoring. Returns (type, confidence, is_doc_start) or None."""
+    if len(text.strip()) < 10:
+        return DocumentType.OTHER, _CONF_FALLBACK_MISS, True
+
     title_other   = _TITLE_OTHER
     title_packing = _TITLE_PACKING
     title_invoice = _TITLE_INVOICE
