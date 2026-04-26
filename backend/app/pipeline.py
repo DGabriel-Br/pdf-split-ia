@@ -11,9 +11,16 @@ from app.services.pdf_builder import build_output_pdfs
 log = logging.getLogger(__name__)
 
 _INVOICE_REF_RE = re.compile(
-    r"invoice\s*no\.?\s*[:.]?\s*([A-Z0-9/\-]{4,25})",
+    r"(?:invoice\s*no\.?|document\s+number)\s*[+:.]?\s*([A-Z$0-9/\-]{4,25})",
     re.IGNORECASE,
 )
+
+_OCR_NOISE = str.maketrans("$|", "SI")
+
+
+def _normalize_ref(ref: str) -> str:
+    """Normalize an invoice ref to resist common OCR substitutions ($ → S, | → I)."""
+    return re.sub(r"[^A-Z0-9]", "", ref.upper().translate(_OCR_NOISE))
 
 
 def _extract_invoice_ref(text: str) -> str | None:
@@ -46,7 +53,7 @@ def _fix_doc_boundaries(
         cur_ref  = _extract_invoice_ref(page_texts[i])
         prev_ref = _extract_invoice_ref(page_texts[i - 1])
 
-        if cur_ref and prev_ref and cur_ref == prev_ref:
+        if cur_ref and prev_ref and _normalize_ref(cur_ref) == _normalize_ref(prev_ref):
             fixed[i] = cur.model_copy(update={"is_doc_start": False})
             log.debug("Pagina %d marcada como CONT (mesmo ref: %s)", cur.page_number, cur_ref)
 

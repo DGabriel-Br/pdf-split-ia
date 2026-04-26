@@ -29,6 +29,7 @@ _TITLE_OTHER = [
     "betriebskontinuit",         # German: business continuity export doc
     "europäische union",         # EU customs documents header
     "europaische union",         # ASCII variant (without umlaut)
+    "picking list",              # Internal warehouse picking list, not an import document
 ]
 
 # ── Keyword signals for score-based pre-filter (fallback after title check) ──
@@ -55,8 +56,10 @@ _PACKING_SIGNALS = [
     "n.w.",
     "g.w.",
     "packing id",
-    "cartons",
+    "carton",
     "no. of cartons",
+    "batch number",
+    "country of origin",
 ]
 
 _PREFILTER_MIN_SCORE = 3

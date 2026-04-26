@@ -1,5 +1,6 @@
 @echo off
 cd /d %~dp0
+set PYTHONUTF8=1
 
 echo Iniciando Redis...
 docker start redis-pdfsplit >nul 2>&1
@@ -8,10 +9,10 @@ echo Iniciando ngrok...
 net start ngrok >nul 2>&1
 
 echo Iniciando Backend...
-start "PDF Split - Backend" cmd /k "cd backend && .venv\Scripts\activate && uvicorn app.main:app --port 8000 --reload"
+start "PDF Split - Backend" cmd /k "cd backend && .venv\Scripts\activate && uvicorn app.main:app --port 8000"
 
 echo Iniciando Celery Worker...
-start "PDF Split - Celery" cmd /k "cd backend && .venv\Scripts\activate && celery -A app.worker worker --pool=threads --loglevel=info"
+start "PDF Split - Celery" cmd /k "cd backend && .venv\Scripts\activate && celery -A app.worker worker --pool=solo --loglevel=info"
 
 echo Iniciando Frontend...
 start "PDF Split - Frontend" cmd /k "cd frontend && npm run dev"
