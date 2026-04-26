@@ -42,18 +42,34 @@ function initTypes(pages) {
   return Object.fromEntries(pages.map(p => [p.page_number, p.doc_type]));
 }
 
+const STAT_CLASS = {
+  INVOICE:      "stat-chip-invoice",
+  PACKING_LIST: "stat-chip-pl",
+  OTHER:        "stat-chip-other",
+};
+
+const STAT_LABEL = {
+  INVOICE:      "Invoice",
+  PACKING_LIST: "Packing List",
+  OTHER:        "Other",
+};
+
 export function ResultPanel({ job, jobId, onReset }) {
-  const [pageTypes, setPageTypes]     = useState(() => initTypes(job.pages));
-  const [savedTypes, setSavedTypes]   = useState(() => initTypes(job.pages));
-  const [outputFiles, setOutputFiles] = useState(job.output_files);
-  const [rebuilding, setRebuilding]   = useState(false);
+  const [pageTypes, setPageTypes]       = useState(() => initTypes(job.pages));
+  const [savedTypes, setSavedTypes]     = useState(() => initTypes(job.pages));
+  const [outputFiles, setOutputFiles]   = useState(job.output_files);
+  const [rebuilding, setRebuilding]     = useState(false);
   const [rebuildError, setRebuildError] = useState(null);
 
   const changedCount = Object.entries(pageTypes).filter(
     ([num, type]) => type !== savedTypes[num]
   ).length;
-
   const isDirty = changedCount > 0;
+
+  const typeCounts = job.pages.reduce((acc, p) => {
+    acc[p.doc_type] = (acc[p.doc_type] || 0) + 1;
+    return acc;
+  }, {});
 
   function handleTypeChange(pageNumber, newType) {
     setPageTypes(prev => ({ ...prev, [pageNumber]: newType }));
@@ -91,13 +107,29 @@ export function ResultPanel({ job, jobId, onReset }) {
   return (
     <div>
       <div className="result-header">
-        <div className="result-checkmark">
-          <CheckIcon />
+        <div className="result-header-left">
+          <div className="result-checkmark">
+            <CheckIcon />
+          </div>
+          <div>
+            <div className="result-title">Processamento concluído</div>
+            <div className="result-stats-row">
+              <span className="stat-total">{job.pages.length} pág.</span>
+              {Object.entries(typeCounts).map(([type, count]) => (
+                <span key={type} className={`stat-chip ${STAT_CLASS[type] ?? ""}`}>
+                  {count} {STAT_LABEL[type] ?? type}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
-        <div>
-          <div className="result-title">Processamento concluído</div>
-          <div className="result-sub">{job.pages.length} páginas classificadas</div>
-        </div>
+
+        {canDownload && !isDirty && (
+          <a href={api.getDownloadAllUrl(jobId)} download className="download-btn download-btn-sm">
+            <DownloadIcon />
+            Baixar PDFs
+          </a>
+        )}
       </div>
 
       <PageLogTable
@@ -119,25 +151,23 @@ export function ResultPanel({ job, jobId, onReset }) {
           </button>
         )}
 
-        {canDownload ? (
-          <div className="download-block">
-            <a href={api.getDownloadAllUrl(jobId)} download className="download-btn">
-              <DownloadIcon />
-              Baixar faturas e packing lists
-            </a>
-          </div>
-        ) : (
-          !isDirty && (
-            <p style={{ color: "var(--text-3)", fontSize: "0.88rem" }}>
-              Nenhuma fatura ou packing list identificada. Corrija a classificação acima se necessário.
-            </p>
-          )
+        {isDirty && canDownload && (
+          <a href={api.getDownloadAllUrl(jobId)} download className="download-btn">
+            <DownloadIcon />
+            Baixar resultado anterior
+          </a>
+        )}
+
+        {!canDownload && !isDirty && (
+          <p style={{ color: "var(--text-3)", fontSize: "0.88rem" }}>
+            Nenhuma fatura ou packing list identificada. Corrija a classificação acima se necessário.
+          </p>
         )}
       </div>
 
       <hr className="divider" />
 
-      <div className="btn-row" style={{ marginTop: 28 }}>
+      <div className="btn-row" style={{ marginTop: 20 }}>
         <button className="btn secondary" onClick={onReset}>
           Processar outro PDF
         </button>

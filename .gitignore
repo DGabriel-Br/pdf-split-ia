@@ -24,6 +24,7 @@ frontend/node_modules/
 frontend/dist/
 
 .claude/
+CLAUDE.md
 
 # Celery beat runtime files
 backend/celerybeat-schedule
