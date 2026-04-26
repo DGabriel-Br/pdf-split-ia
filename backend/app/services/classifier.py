@@ -15,6 +15,7 @@ _TITLE_PACKING = [
 _TITLE_INVOICE = [
     "export invoice",   # "EXPORT INVOICE" (Reify, Indian format)
     "e x p o r t i",   # "E X P O R T I N V O I C E" (Prem, Indian spaced-letter format)
+    "invoice",          # Generic "Invoice" title (catches cases where delivery note also appears in body)
 ]
 _TITLE_OTHER = [
     "export value declaration",
@@ -30,6 +31,7 @@ _TITLE_OTHER = [
     "europäische union",         # EU customs documents header
     "europaische union",         # ASCII variant (without umlaut)
     "picking list",              # Internal warehouse picking list, not an import document
+    "inspection certificate",    # Quality/material inspection certificate (EN 10204 etc.)
 ]
 
 # ── Keyword signals for score-based pre-filter (fallback after title check) ──
@@ -147,7 +149,7 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     packing_title = any(t in header for t in title_packing)
     invoice_title = any(t in header for t in title_invoice)
 
-    if other_title and not invoice_title and not packing_title:
+    if other_title and not invoice_title:
         return DocumentType.OTHER, _CONF_HEADER_TITLE, True
     if packing_title and not invoice_title:
         return DocumentType.PACKING_LIST, _CONF_HEADER_TITLE, True
