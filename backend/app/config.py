@@ -16,12 +16,6 @@ class Settings(BaseSettings):
     storage_upload_dir: str = "storage/uploads"
     storage_output_dir: str = "storage/outputs"
     job_ttl_seconds: int = 3600
-    corrections_file: str = "storage/corrections.jsonl"
-    corrections_dir: str = "storage/corrections"
-    learned_patterns_file: str = "storage/learned_patterns.json"
-    anthropic_api_key: str = ""
-    reviewer_model: str = "claude-opus-4-7"
-    admin_token: str = ""
     cors_origins: list[str] = ["http://localhost:5173"]
 
     model_config = SettingsConfigDict(env_file=".env")

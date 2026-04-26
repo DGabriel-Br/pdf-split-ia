@@ -12,12 +12,3 @@ def run_pipeline_task(job_id: str, pdf_path: str) -> None:
     run_pipeline(job_id, pdf_path, settings)
 
 
-@celery_app.task(name="tasks.weekly_classifier_review")
-def weekly_classifier_review() -> None:
-    from app.services.classifier_reviewer import analyze_and_propose
-    log.info("Revisao semanal do classificador iniciada.")
-    path = analyze_and_propose()
-    if path:
-        log.info("Revisao concluida. Proposta gerada em: %s", path)
-    else:
-        log.info("Revisao concluida. Sem novas correcoes para analisar.")

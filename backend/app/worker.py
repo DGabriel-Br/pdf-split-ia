@@ -1,5 +1,4 @@
 from celery import Celery
-from celery.schedules import crontab
 from app.config import get_settings
 
 _s = get_settings()
@@ -16,10 +15,4 @@ celery_app.conf.update(
     task_acks_late=True,
     timezone="America/Sao_Paulo",
     enable_utc=True,
-    beat_schedule={
-        "weekly-classifier-review": {
-            "task": "tasks.weekly_classifier_review",
-            "schedule": crontab(hour=8, minute=0, day_of_week="monday"),
-        },
-    },
 )
