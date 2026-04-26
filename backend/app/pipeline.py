@@ -11,7 +11,13 @@ from app.services.pdf_builder import build_output_pdfs
 log = logging.getLogger(__name__)
 
 _INVOICE_REF_RE = re.compile(
-    r"(?:invoice\s*no\.?|document\s+number)\s*[+:.]?\s*([A-Z$0-9/\-]{4,25})",
+    r"(?:invoice(?:\s+(?!no\b)\w+)?\s*no\.?|document\s+number)\s*[+:.]?\s*([A-Z$0-9/\-]{4,25})",
+    re.IGNORECASE,
+)
+
+_PAGE_CONT_RE = re.compile(
+    r"\bpage\s+([2-9]|\d{2,3})\b"
+    r"|\bseite\s+([2-9]|\d{2,3})\b",
     re.IGNORECASE,
 )
 
@@ -56,6 +62,9 @@ def _fix_doc_boundaries(
         if cur_ref and prev_ref and _normalize_ref(cur_ref) == _normalize_ref(prev_ref):
             fixed[i] = cur.model_copy(update={"is_doc_start": False})
             log.debug("Pagina %d marcada como CONT (mesmo ref: %s)", cur.page_number, cur_ref)
+        elif _PAGE_CONT_RE.search(page_texts[i]):
+            fixed[i] = cur.model_copy(update={"is_doc_start": False})
+            log.debug("Pagina %d marcada como CONT (indicador de pagina no texto)", cur.page_number)
 
     return fixed
 
