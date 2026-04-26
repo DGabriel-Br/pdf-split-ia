@@ -38,6 +38,19 @@ def _detect_rotation(img: Image.Image) -> int:
         return 0
 
 
+def _run_ocr(img: Image.Image, confidence_floor: float) -> str:
+    data = pytesseract.image_to_data(
+        img, lang="eng+por", config="--psm 6",
+        output_type=pytesseract.Output.DICT,
+    )
+    threshold = confidence_floor * 100
+    words = [
+        word for word, conf in zip(data["text"], data["conf"])
+        if word.strip() and int(conf) >= threshold
+    ]
+    return " ".join(words)
+
+
 def ocr_page(pdf_path: str, page_index: int, confidence_floor: float = 0.4) -> str:
     """Render page to image at 2x zoom (~144 DPI), correct rotation, and run Tesseract OCR."""
     doc = fitz.open(pdf_path)
@@ -50,17 +63,22 @@ def ocr_page(pdf_path: str, page_index: int, confidence_floor: float = 0.4) -> s
         doc.close()
 
     rotation = _detect_rotation(img)
-    if rotation != 0:
-        log.debug("Pagina %d: rotacionada %d graus (PIL)", page_index + 1, rotation)
-        img = img.rotate(rotation, expand=True)
+    if rotation == 0:
+        return _run_ocr(img, confidence_floor)
 
-    data = pytesseract.image_to_data(
-        img, lang="eng+por", config="--psm 6",
-        output_type=pytesseract.Output.DICT,
+    # OSD suggested a rotation — verify by running OCR on both orientations.
+    # OSD can misfire (e.g. flag a correct page as 180°); only rotate when it
+    # clearly yields more text (20% threshold).
+    text_original = _run_ocr(img, confidence_floor)
+    text_rotated  = _run_ocr(img.rotate(rotation, expand=True), confidence_floor)
+    if len(text_rotated) > len(text_original) * 1.2:
+        log.debug(
+            "Pagina %d: rotacionada %d graus (OSD confirmado: %d > %d chars)",
+            page_index + 1, rotation, len(text_rotated), len(text_original),
+        )
+        return text_rotated
+    log.debug(
+        "Pagina %d: OSD sugeriu %d graus mas OCR sem rotacao e melhor (%d vs %d chars)",
+        page_index + 1, rotation, len(text_original), len(text_rotated),
     )
-    threshold = confidence_floor * 100
-    words = [
-        word for word, conf in zip(data["text"], data["conf"])
-        if word.strip() and int(conf) >= threshold
-    ]
-    return " ".join(words)
+    return text_original
