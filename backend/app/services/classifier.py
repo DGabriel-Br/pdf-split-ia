@@ -62,6 +62,8 @@ _PACKING_SIGNALS = [
     "no. of cartons",
     "batch number",
     "country of origin",
+    "carton size",
+    "pltno",
 ]
 
 _PREFILTER_MIN_SCORE = 3
@@ -157,7 +159,14 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     if packing_title and not invoice_title:
         return DocumentType.PACKING_LIST, _CONF_HEADER_TITLE, True
     if invoice_title and not packing_title:
-        return DocumentType.INVOICE, _CONF_HEADER_TITLE, True
+        if "invoice no" not in header:
+            # "invoice" is the document title (not a cross-reference field)
+            return DocumentType.INVOICE, _CONF_HEADER_TITLE, True
+        # "invoice no" on the same line = reference field on a packing list (common in Chinese docs)
+        inv_score, pack_score = _keyword_scores(text)
+        if pack_score >= 3 and pack_score > inv_score:
+            return DocumentType.PACKING_LIST, _CONF_KEYWORD_SCORE, True
+        # Ambiguous — fall through to keyword scoring / Ollama
 
     # 3. Keyword score fallback
     lower_full = text.lower()
