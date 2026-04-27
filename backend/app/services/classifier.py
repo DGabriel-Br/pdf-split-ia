@@ -1,4 +1,5 @@
 import logging
+import re
 import httpx
 from app.config import Settings, get_settings
 from app.models import DocumentType
@@ -24,7 +25,7 @@ _TITLE_OTHER = [
     "bill of lading",
     "shipping bill",
     "phytosanitary",
-    "contract",                  # Standalone trade contract (Chinese supplier)
+    # "contract" handled separately with word-boundary check — see _prefilter
     "transport order",           # Robert Bosch transport/shipping orders
     "ausfuhrbegleitdokument",    # German: export accompanying document (EU customs)
     "betriebskontinuit",         # German: business continuity export doc
@@ -150,7 +151,7 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
         return DocumentType.PACKING_LIST, _CONF_EXACT_TITLE, True
 
     # 2. Title keywords anywhere in first 500 chars
-    other_title   = any(t in header for t in title_other)
+    other_title   = any(t in header for t in title_other) or bool(re.search(r"\bcontract\b", header))
     packing_title = any(t in header for t in title_packing)
     invoice_title = any(t in header for t in title_invoice)
 
