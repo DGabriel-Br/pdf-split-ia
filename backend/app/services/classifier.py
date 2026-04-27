@@ -12,10 +12,12 @@ _TITLE_PACKING = [
     "p a c k i n g",   # "P A C K I N G L I S T" (Indian spaced-letter format)
     "delivery note",    # Robert Bosch and similar suppliers
     "lieferschein",     # German: delivery note (Robert Bosch German docs)
+    "lieferschei",      # OCR-split variant of "Lieferschein" (space inserted mid-word)
 ]
 _TITLE_INVOICE = [
     "export invoice",   # "EXPORT INVOICE" (Reify, Indian format)
     "e x p o r t i",   # "E X P O R T I N V O I C E" (Prem, Indian spaced-letter format)
+    "proforma",         # "Proforma Invoice" / "Proforma-Invoice" (Fastenrath and similar)
     "invoice",          # Generic "Invoice" title (catches cases where delivery note also appears in body)
 ]
 _TITLE_OTHER = [
@@ -31,8 +33,11 @@ _TITLE_OTHER = [
     "betriebskontinuit",         # German: business continuity export doc
     "europäische union",         # EU customs documents header
     "europaische union",         # ASCII variant (without umlaut)
+    "europai kozosseg",          # Hungarian: "European Community" (Hungarian customs)
     "picking list",              # Internal warehouse picking list, not an import document
     "inspection certificate",    # Quality/material inspection certificate (EN 10204 etc.)
+    "spediteur",                 # German: freight forwarder — transport/dispatch documents
+    "pickup address",            # Logistics sender/pickup page (Krempel and similar carriers)
 ]
 
 # ── Keyword signals for score-based pre-filter (fallback after title check) ──
@@ -79,6 +84,17 @@ _CONF_OLLAMA_OTHER  = 0.90
 _CONF_FALLBACK_HIT  = 0.60
 _CONF_FALLBACK_MISS = 0.50
 
+# Detects continuation pages via N/M page-number patterns (N ≥ 2) in the header.
+# Matches: "page: 2", "seite 3", "invoice 2/3", "invoice 3/ 4", "delivery 2/2".
+# Limits N and M to 1–2 digits to avoid matching long reference numbers.
+_RE_CONT_PAGE = re.compile(
+    r'\bpage\b[^0-9]{0,5}([2-9]|\d{2,3})\b'
+    r'|\bseite\b[^0-9]{0,5}([2-9]|\d{2,3})\b'
+    r'|\b(?:invoice|delivery|lieferschein)\b[^0-9]{0,25}([2-9]|[1-9]\d)\s*/\s*[1-9][0-9]?\b',
+    re.IGNORECASE,
+)
+
+
 PROMPT_TEMPLATE = """\
 You are a document classification engine for import trade documents.
 Analyze the page text and reply with EXACTLY TWO words separated by a space.
@@ -95,10 +111,13 @@ Word 1 — Document type:
                   trade contracts, annexures, etc.
 
 Word 2 — Page position:
-  NEW   - first page of a new document. Has a document header with issuer, recipient, document number
-          and date. Examples: "Invoice No.", "Bill To", "Shipper", "Page 1 of N", company letterhead.
-  CONT  - continuation of the previous document. Shows "2/3", "3/3", "Page 2", "2 of 3" or similar
-          multi-page indicators, or contains only line items / totals with no full document header.
+  NEW   - first page of a new document. Shows "1/N", "Page 1 of N", "Page 1", or no page indicator.
+          Has a document header with issuer, recipient, document number and date.
+  CONT  - continuation of the previous document. KEY SIGNAL: the page shows a fraction N/M where
+          N ≥ 2 (e.g. "2/3", "3/4", "Invoice 2/3", "Invoice 3/ 3", "Page 2", "2 of 3").
+          IMPORTANT: many suppliers repeat the FULL header (issuer, date, reference) on every page.
+          Even when the header repeats completely, if N ≥ 2 appears anywhere on the page, classify
+          as CONT — do NOT classify as NEW just because the header is present again.
 
 Rules:
 1. The DOCUMENT TITLE (first prominent line) is the most reliable signal:
@@ -126,6 +145,11 @@ def _keyword_scores(text: str) -> tuple[int, int]:
     inv = sum(1 for w in _INVOICE_SIGNALS if w in lower)
     pack = sum(1 for w in _PACKING_SIGNALS if w in lower)
     return inv, pack
+
+
+def _is_doc_start(header: str) -> bool:
+    """Return False if the header contains a continuation page marker (N/M where N ≥ 2)."""
+    return not bool(_RE_CONT_PAGE.search(header))
 
 
 def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
@@ -156,17 +180,17 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     invoice_title = any(t in header for t in title_invoice)
 
     if other_title and not invoice_title:
-        return DocumentType.OTHER, _CONF_HEADER_TITLE, True
+        return DocumentType.OTHER, _CONF_HEADER_TITLE, _is_doc_start(header)
     if packing_title and not invoice_title:
-        return DocumentType.PACKING_LIST, _CONF_HEADER_TITLE, True
+        return DocumentType.PACKING_LIST, _CONF_HEADER_TITLE, _is_doc_start(header)
     if invoice_title and not packing_title:
         if "invoice no" not in header:
             # "invoice" is the document title (not a cross-reference field)
-            return DocumentType.INVOICE, _CONF_HEADER_TITLE, True
+            return DocumentType.INVOICE, _CONF_HEADER_TITLE, _is_doc_start(header)
         # "invoice no" on the same line = reference field on a packing list (common in Chinese docs)
         inv_score, pack_score = _keyword_scores(text)
         if pack_score >= 3 and pack_score > inv_score:
-            return DocumentType.PACKING_LIST, _CONF_KEYWORD_SCORE, True
+            return DocumentType.PACKING_LIST, _CONF_KEYWORD_SCORE, _is_doc_start(header)
         # Ambiguous — fall through to keyword scoring / Ollama
 
     # 3. Keyword score fallback
@@ -174,9 +198,9 @@ def _prefilter(text: str) -> tuple[DocumentType, float, bool] | None:
     inv  = sum(1 for w in inv_signals  if w in lower_full)
     pack = sum(1 for w in pack_signals if w in lower_full)
     if inv >= _PREFILTER_MIN_SCORE and inv >= pack * _PREFILTER_DOMINANCE:
-        return DocumentType.INVOICE, _CONF_KEYWORD_SCORE, True
+        return DocumentType.INVOICE, _CONF_KEYWORD_SCORE, _is_doc_start(header)
     if pack >= _PREFILTER_MIN_SCORE and pack >= inv * _PREFILTER_DOMINANCE:
-        return DocumentType.PACKING_LIST, _CONF_KEYWORD_SCORE, True
+        return DocumentType.PACKING_LIST, _CONF_KEYWORD_SCORE, _is_doc_start(header)
 
     return None
 

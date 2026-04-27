@@ -15,9 +15,14 @@ _INVOICE_REF_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Detects continuation pages: "page: 2", "seite 3", "invoice 2/3", "delivery 2/2".
+# "page/seite" allow 0-5 non-digit chars before the number (e.g. "page: 2").
+# "invoice/delivery/lieferschein" allow up to 25 non-digit chars (to skip "No." prefix).
+# Second number limited to 1-2 digits to avoid matching long reference numbers.
 _PAGE_CONT_RE = re.compile(
-    r"\bpage\s+([2-9]|\d{2,3})\b"
-    r"|\bseite\s+([2-9]|\d{2,3})\b",
+    r'\bpage\b[^0-9]{0,5}([2-9]|\d{2,3})\b'
+    r'|\bseite\b[^0-9]{0,5}([2-9]|\d{2,3})\b'
+    r'|\b(?:invoice|delivery|lieferschein)\b[^0-9]{0,25}([2-9]|[1-9]\d)\s*/\s*[1-9][0-9]?\b',
     re.IGNORECASE,
 )
 
@@ -39,32 +44,85 @@ def _fix_doc_boundaries(
     page_results: list[PageResult],
     page_texts: list[str],
 ) -> list[PageResult]:
-    """Merge consecutive INVOICE pages that share the same invoice reference number.
+    """Merge consecutive pages that belong to the same document.
 
-    Multi-page invoices (e.g. Robert Bosch 1/3, 2/3, 3/3) repeat the full header
-    on every page, causing the classifier to mark each page as NEW. This pass checks
-    consecutive INVOICE pages: if they share the same invoice reference number, the
-    later pages are marked as CONT so the builder keeps them in one PDF.
+    Handles three cases in priority order per page:
+    1. INVOICE → INVOICE CONT — same invoice ref number, or explicit page marker.
+    2. Any type → PACKING_LIST CONT — previous page is PACKING_LIST and current has page marker.
+    3. OTHER → INVOICE CONT — previous page is INVOICE and current has page marker.
+       Covers last pages of invoices that contain EU origin certificates or regulatory text.
     """
     fixed = list(page_results)
     for i in range(1, len(fixed)):
         cur  = fixed[i]
         prev = fixed[i - 1]
 
-        if cur.doc_type != DocumentType.INVOICE or not cur.is_doc_start:
-            continue
-        if prev.doc_type != DocumentType.INVOICE:
+        if not cur.is_doc_start:
             continue
 
-        cur_ref  = _extract_invoice_ref(page_texts[i])
-        prev_ref = _extract_invoice_ref(page_texts[i - 1])
+        text = page_texts[i]
+        has_cont_marker = bool(_PAGE_CONT_RE.search(text))
 
-        if cur_ref and prev_ref and _normalize_ref(cur_ref) == _normalize_ref(prev_ref):
-            fixed[i] = cur.model_copy(update={"is_doc_start": False})
-            log.debug("Pagina %d marcada como CONT (mesmo ref: %s)", cur.page_number, cur_ref)
-        elif _PAGE_CONT_RE.search(page_texts[i]):
-            fixed[i] = cur.model_copy(update={"is_doc_start": False})
-            log.debug("Pagina %d marcada como CONT (indicador de pagina no texto)", cur.page_number)
+        # 1. INVOICE consecutive merging (same type)
+        if cur.doc_type == DocumentType.INVOICE and prev.doc_type == DocumentType.INVOICE:
+            cur_ref  = _extract_invoice_ref(page_texts[i])
+            prev_ref = _extract_invoice_ref(page_texts[i - 1])
+            if cur_ref and prev_ref and _normalize_ref(cur_ref) == _normalize_ref(prev_ref):
+                fixed[i] = cur.model_copy(update={"is_doc_start": False})
+                log.debug("Pagina %d marcada como CONT (mesmo ref: %s)", cur.page_number, cur_ref)
+                continue
+            if has_cont_marker:
+                fixed[i] = cur.model_copy(update={"is_doc_start": False})
+                log.debug("Pagina %d marcada como CONT (indicador de pagina no texto)", cur.page_number)
+                continue
+
+        # 2. Cross-type → PACKING_LIST CONT (prev is PACKING_LIST, cur has continuation marker)
+        if prev.doc_type == DocumentType.PACKING_LIST and has_cont_marker:
+            fixed[i] = cur.model_copy(update={"is_doc_start": False, "doc_type": DocumentType.PACKING_LIST})
+            log.debug(
+                "Pagina %d reclassificada como PACKING_LIST CONT (prev=PACKING_LIST, marcador detectado)",
+                cur.page_number,
+            )
+            continue
+
+        # 3. Non-INVOICE → INVOICE CONT (prev=INVOICE, cur has cont marker)
+        # Covers OTHER pages (EU certificates etc.) and pages misclassified as PACKING_LIST
+        # that are actually continuations of an invoice.
+        elif cur.doc_type != DocumentType.INVOICE and prev.doc_type == DocumentType.INVOICE and has_cont_marker:
+            fixed[i] = cur.model_copy(update={"is_doc_start": False, "doc_type": DocumentType.INVOICE})
+            log.debug(
+                "Pagina %d reclassificada como INVOICE CONT (prev=INVOICE, cross-type, marcador detectado)",
+                cur.page_number,
+            )
+            continue
+
+    # Pass 2: post-process CONT pages.
+    for i in range(1, len(fixed)):
+        cur  = fixed[i]
+        prev = fixed[i - 1]
+
+        if cur.is_doc_start:
+            continue
+
+        # 2a. CONT after OTHER is suspicious — but only reset if the page itself has no
+        # strong continuation marker (e.g. "Invoice 2/3"). If it has a marker, Ollama's
+        # CONT label is likely correct despite the OTHER predecessor (which may itself be
+        # misclassified due to garbled OCR).
+        if prev.doc_type == DocumentType.OTHER:
+            if not _PAGE_CONT_RE.search(page_texts[i]):
+                log.debug("Pagina %d: CONT apos OTHER sem marcador, resetada para NEW", cur.page_number)
+                fixed[i] = cur.model_copy(update={"is_doc_start": True})
+            continue
+
+        # 2b. Align type to predecessor when both are non-OTHER.
+        # Handles Ollama correctly marking CONT position but misidentifying the type
+        # (e.g. INVOICE CONT after PACKING_LIST → PACKING_LIST CONT).
+        if cur.doc_type != prev.doc_type and cur.doc_type != DocumentType.OTHER:
+            log.debug(
+                "Pagina %d tipo alinhado com predecessor: %s -> %s",
+                cur.page_number, cur.doc_type.value, prev.doc_type.value,
+            )
+            fixed[i] = cur.model_copy(update={"doc_type": prev.doc_type})
 
     return fixed
 
